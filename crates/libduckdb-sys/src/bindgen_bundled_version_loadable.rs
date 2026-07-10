@@ -2296,6 +2296,10 @@ pub struct duckdb_ext_api_v1 {
     >,
     pub duckdb_create_time_ns: ::std::option::Option<unsafe extern "C" fn(input: duckdb_time_ns) -> duckdb_value>,
     pub duckdb_get_time_ns: ::std::option::Option<unsafe extern "C" fn(val: duckdb_value) -> duckdb_time_ns>,
+    pub duckdb_create_timestamp_tz_ns:
+        ::std::option::Option<unsafe extern "C" fn(input: duckdb_timestamp_ns) -> duckdb_value>,
+    pub duckdb_get_timestamp_tz_ns:
+        ::std::option::Option<unsafe extern "C" fn(val: duckdb_value) -> duckdb_timestamp_ns>,
     pub duckdb_create_vector:
         ::std::option::Option<unsafe extern "C" fn(type_: duckdb_logical_type, capacity: idx_t) -> duckdb_vector>,
     pub duckdb_destroy_vector: ::std::option::Option<unsafe extern "C" fn(vector: *mut duckdb_vector)>,
@@ -11769,6 +11773,32 @@ pub unsafe fn duckdb_get_time_ns(val: duckdb_value) -> duckdb_time_ns {
     (fun)(val)
 }
 
+static __DUCKDB_CREATE_TIMESTAMP_TZ_NS: ::std::sync::atomic::AtomicPtr<()> =
+    ::std::sync::atomic::AtomicPtr::new(::std::ptr::null_mut());
+pub unsafe fn duckdb_create_timestamp_tz_ns(input: duckdb_timestamp_ns) -> duckdb_value {
+    let function_ptr = __DUCKDB_CREATE_TIMESTAMP_TZ_NS
+        .load(::std::sync::atomic::Ordering::Acquire);
+    assert!(
+        !function_ptr.is_null(), "DuckDB API not initialized or DuckDB feature omitted"
+    );
+    let fun: unsafe extern "C" fn(input: duckdb_timestamp_ns) -> duckdb_value =
+        ::std::mem::transmute(function_ptr);
+    (fun)(input)
+}
+
+static __DUCKDB_GET_TIMESTAMP_TZ_NS: ::std::sync::atomic::AtomicPtr<()> =
+    ::std::sync::atomic::AtomicPtr::new(::std::ptr::null_mut());
+pub unsafe fn duckdb_get_timestamp_tz_ns(val: duckdb_value) -> duckdb_timestamp_ns {
+    let function_ptr = __DUCKDB_GET_TIMESTAMP_TZ_NS
+        .load(::std::sync::atomic::Ordering::Acquire);
+    assert!(
+        !function_ptr.is_null(), "DuckDB API not initialized or DuckDB feature omitted"
+    );
+    let fun: unsafe extern "C" fn(val: duckdb_value) -> duckdb_timestamp_ns =
+        ::std::mem::transmute(function_ptr);
+    (fun)(val)
+}
+
 static __DUCKDB_CREATE_VECTOR: ::std::sync::atomic::AtomicPtr<()> = ::std::sync::atomic::AtomicPtr::new(
     ::std::ptr::null_mut(),
 );
@@ -14219,6 +14249,14 @@ pub unsafe fn duckdb_rs_extension_api_init(
     }
     if let Some(fun) = (*p_api).duckdb_get_time_ns {
         __DUCKDB_GET_TIME_NS
+            .store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
+    }
+    if let Some(fun) = (*p_api).duckdb_create_timestamp_tz_ns {
+        __DUCKDB_CREATE_TIMESTAMP_TZ_NS
+            .store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
+    }
+    if let Some(fun) = (*p_api).duckdb_get_timestamp_tz_ns {
+        __DUCKDB_GET_TIMESTAMP_TZ_NS
             .store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
     }
     if let Some(fun) = (*p_api).duckdb_create_vector {

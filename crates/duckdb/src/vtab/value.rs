@@ -2,6 +2,7 @@ use crate::core::LogicalTypeId;
 use crate::ffi::{
     DuckDbString, duckdb_destroy_value, duckdb_get_bool, duckdb_get_double, duckdb_get_float, duckdb_get_int8,
     duckdb_get_int16, duckdb_get_int32, duckdb_get_int64, duckdb_get_list_child, duckdb_get_list_size,
+    duckdb_get_timestamp, duckdb_get_timestamp_tz,
     duckdb_get_type_id, duckdb_get_uint8, duckdb_get_uint16, duckdb_get_uint32, duckdb_get_uint64,
     duckdb_get_value_type, duckdb_get_varchar, duckdb_is_null_value, duckdb_value,
 };
@@ -81,6 +82,24 @@ impl Value {
             out.push(Value::from(child));
         }
         Some(out)
+    }
+
+    /// Returns the value as Unix epoch seconds for timestamp/timestamptz types.
+    ///
+    /// Returns `None` for non-timestamp types or NULL values.
+    pub fn to_timestamp_secs(&self) -> Option<i64> {
+        if self.is_null() {
+            return None;
+        }
+        match self.logical_type_id() {
+            LogicalTypeId::TimestampTZ => {
+                Some(unsafe { duckdb_get_timestamp_tz(self.ptr) }.micros / 1_000_000)
+            }
+            LogicalTypeId::Timestamp => {
+                Some(unsafe { duckdb_get_timestamp(self.ptr) }.micros / 1_000_000)
+            }
+            _ => None,
+        }
     }
 
     /// Returns whether the value is SQL `NULL`.
