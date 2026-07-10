@@ -166,6 +166,20 @@ pub const duckdb_catalog_entry_type_DUCKDB_CATALOG_ENTRY_TYPE_TYPE: duckdb_catal
 pub const duckdb_catalog_entry_type_DUCKDB_CATALOG_ENTRY_TYPE_DATABASE: duckdb_catalog_entry_type = 9;
 #[doc = "! An enum over DuckDB's catalog entry types."]
 pub type duckdb_catalog_entry_type = ::std::os::raw::c_uint;
+pub const duckdb_expression_type_DUCKDB_EXPRESSION_COMPARISON: duckdb_expression_type = 0;
+pub const duckdb_expression_type_DUCKDB_EXPRESSION_CONJUNCTION_AND: duckdb_expression_type = 1;
+pub const duckdb_expression_type_DUCKDB_EXPRESSION_CONJUNCTION_OR: duckdb_expression_type = 2;
+pub const duckdb_expression_type_DUCKDB_EXPRESSION_CONSTANT: duckdb_expression_type = 3;
+pub const duckdb_expression_type_DUCKDB_EXPRESSION_COLUMN_REF: duckdb_expression_type = 4;
+pub const duckdb_expression_type_DUCKDB_EXPRESSION_OTHER: duckdb_expression_type = 5;
+pub type duckdb_expression_type = ::std::os::raw::c_uint;
+pub const duckdb_comparison_type_DUCKDB_COMPARISON_EQUAL: duckdb_comparison_type = 0;
+pub const duckdb_comparison_type_DUCKDB_COMPARISON_NOTEQUAL: duckdb_comparison_type = 1;
+pub const duckdb_comparison_type_DUCKDB_COMPARISON_LESSTHAN: duckdb_comparison_type = 2;
+pub const duckdb_comparison_type_DUCKDB_COMPARISON_GREATERTHAN: duckdb_comparison_type = 3;
+pub const duckdb_comparison_type_DUCKDB_COMPARISON_LESSTHANOREQUALTO: duckdb_comparison_type = 4;
+pub const duckdb_comparison_type_DUCKDB_COMPARISON_GREATERTHANOREQUALTO: duckdb_comparison_type = 5;
+pub type duckdb_comparison_type = ::std::os::raw::c_uint;
 #[doc = "! DuckDB's index type."]
 pub type idx_t = u64;
 #[doc = "! Type definition for the data pointers of selection vectors."]
@@ -2309,6 +2323,30 @@ pub struct duckdb_ext_api_v1 {
     pub duckdb_unsafe_vector_assign_string_element_len: ::std::option::Option<
         unsafe extern "C" fn(vector: duckdb_vector, index: idx_t, str_: *const ::std::os::raw::c_char, str_len: idx_t),
     >,
+    pub duckdb_table_function_supports_filter_pushdown:
+        ::std::option::Option<unsafe extern "C" fn(table_function: duckdb_table_function, pushdown: bool)>,
+    pub duckdb_init_get_filter_count: ::std::option::Option<unsafe extern "C" fn(info: duckdb_init_info) -> idx_t>,
+    pub duckdb_init_get_filter_column_index:
+        ::std::option::Option<unsafe extern "C" fn(info: duckdb_init_info, filter_index: idx_t) -> idx_t>,
+    pub duckdb_init_get_filter_expression: ::std::option::Option<
+        unsafe extern "C" fn(info: duckdb_init_info, filter_index: idx_t) -> duckdb_expression,
+    >,
+    pub duckdb_expression_get_type:
+        ::std::option::Option<unsafe extern "C" fn(expr: duckdb_expression) -> duckdb_expression_type>,
+    pub duckdb_comparison_expression_get_operator:
+        ::std::option::Option<unsafe extern "C" fn(expr: duckdb_expression) -> duckdb_comparison_type>,
+    pub duckdb_comparison_expression_get_left:
+        ::std::option::Option<unsafe extern "C" fn(expr: duckdb_expression) -> duckdb_expression>,
+    pub duckdb_comparison_expression_get_right:
+        ::std::option::Option<unsafe extern "C" fn(expr: duckdb_expression) -> duckdb_expression>,
+    pub duckdb_conjunction_expression_get_child_count:
+        ::std::option::Option<unsafe extern "C" fn(expr: duckdb_expression) -> idx_t>,
+    pub duckdb_conjunction_expression_get_child:
+        ::std::option::Option<unsafe extern "C" fn(expr: duckdb_expression, index: idx_t) -> duckdb_expression>,
+    pub duckdb_constant_expression_get_value:
+        ::std::option::Option<unsafe extern "C" fn(expr: duckdb_expression) -> duckdb_value>,
+    pub duckdb_column_ref_expression_get_index:
+        ::std::option::Option<unsafe extern "C" fn(expr: duckdb_expression) -> idx_t>,
 }
 static __DUCKDB_OPEN: ::std::sync::atomic::AtomicPtr<()> = ::std::sync::atomic::AtomicPtr::new(
     ::std::ptr::null_mut(),
@@ -11917,6 +11955,116 @@ pub unsafe fn duckdb_unsafe_vector_assign_string_element_len(
     (fun)(vector, index, str_, str_len)
 }
 
+static __DUCKDB_TABLE_FUNCTION_SUPPORTS_FILTER_PUSHDOWN: ::std::sync::atomic::AtomicPtr<()> =
+    ::std::sync::atomic::AtomicPtr::new(::std::ptr::null_mut());
+pub unsafe fn duckdb_table_function_supports_filter_pushdown(
+    table_function: duckdb_table_function,
+    pushdown: bool,
+) {
+    let function_ptr = __DUCKDB_TABLE_FUNCTION_SUPPORTS_FILTER_PUSHDOWN
+        .load(::std::sync::atomic::Ordering::Acquire);
+    assert!(!function_ptr.is_null(), "DuckDB API not initialized or DuckDB feature omitted");
+    let fun: unsafe extern "C" fn(table_function: duckdb_table_function, pushdown: bool) =
+        ::std::mem::transmute(function_ptr);
+    (fun)(table_function, pushdown)
+}
+static __DUCKDB_INIT_GET_FILTER_COUNT: ::std::sync::atomic::AtomicPtr<()> =
+    ::std::sync::atomic::AtomicPtr::new(::std::ptr::null_mut());
+pub unsafe fn duckdb_init_get_filter_count(info: duckdb_init_info) -> idx_t {
+    let function_ptr = __DUCKDB_INIT_GET_FILTER_COUNT.load(::std::sync::atomic::Ordering::Acquire);
+    assert!(!function_ptr.is_null(), "DuckDB API not initialized or DuckDB feature omitted");
+    let fun: unsafe extern "C" fn(info: duckdb_init_info) -> idx_t = ::std::mem::transmute(function_ptr);
+    (fun)(info)
+}
+static __DUCKDB_INIT_GET_FILTER_COLUMN_INDEX: ::std::sync::atomic::AtomicPtr<()> =
+    ::std::sync::atomic::AtomicPtr::new(::std::ptr::null_mut());
+pub unsafe fn duckdb_init_get_filter_column_index(info: duckdb_init_info, filter_index: idx_t) -> idx_t {
+    let function_ptr = __DUCKDB_INIT_GET_FILTER_COLUMN_INDEX.load(::std::sync::atomic::Ordering::Acquire);
+    assert!(!function_ptr.is_null(), "DuckDB API not initialized or DuckDB feature omitted");
+    let fun: unsafe extern "C" fn(info: duckdb_init_info, filter_index: idx_t) -> idx_t =
+        ::std::mem::transmute(function_ptr);
+    (fun)(info, filter_index)
+}
+static __DUCKDB_INIT_GET_FILTER_EXPRESSION: ::std::sync::atomic::AtomicPtr<()> =
+    ::std::sync::atomic::AtomicPtr::new(::std::ptr::null_mut());
+pub unsafe fn duckdb_init_get_filter_expression(info: duckdb_init_info, filter_index: idx_t) -> duckdb_expression {
+    let function_ptr = __DUCKDB_INIT_GET_FILTER_EXPRESSION.load(::std::sync::atomic::Ordering::Acquire);
+    assert!(!function_ptr.is_null(), "DuckDB API not initialized or DuckDB feature omitted");
+    let fun: unsafe extern "C" fn(info: duckdb_init_info, filter_index: idx_t) -> duckdb_expression =
+        ::std::mem::transmute(function_ptr);
+    (fun)(info, filter_index)
+}
+static __DUCKDB_EXPRESSION_GET_TYPE: ::std::sync::atomic::AtomicPtr<()> =
+    ::std::sync::atomic::AtomicPtr::new(::std::ptr::null_mut());
+pub unsafe fn duckdb_expression_get_type(expr: duckdb_expression) -> duckdb_expression_type {
+    let function_ptr = __DUCKDB_EXPRESSION_GET_TYPE.load(::std::sync::atomic::Ordering::Acquire);
+    assert!(!function_ptr.is_null(), "DuckDB API not initialized or DuckDB feature omitted");
+    let fun: unsafe extern "C" fn(expr: duckdb_expression) -> duckdb_expression_type =
+        ::std::mem::transmute(function_ptr);
+    (fun)(expr)
+}
+static __DUCKDB_COMPARISON_EXPRESSION_GET_OPERATOR: ::std::sync::atomic::AtomicPtr<()> =
+    ::std::sync::atomic::AtomicPtr::new(::std::ptr::null_mut());
+pub unsafe fn duckdb_comparison_expression_get_operator(expr: duckdb_expression) -> duckdb_comparison_type {
+    let function_ptr = __DUCKDB_COMPARISON_EXPRESSION_GET_OPERATOR.load(::std::sync::atomic::Ordering::Acquire);
+    assert!(!function_ptr.is_null(), "DuckDB API not initialized or DuckDB feature omitted");
+    let fun: unsafe extern "C" fn(expr: duckdb_expression) -> duckdb_comparison_type =
+        ::std::mem::transmute(function_ptr);
+    (fun)(expr)
+}
+static __DUCKDB_COMPARISON_EXPRESSION_GET_LEFT: ::std::sync::atomic::AtomicPtr<()> =
+    ::std::sync::atomic::AtomicPtr::new(::std::ptr::null_mut());
+pub unsafe fn duckdb_comparison_expression_get_left(expr: duckdb_expression) -> duckdb_expression {
+    let function_ptr = __DUCKDB_COMPARISON_EXPRESSION_GET_LEFT.load(::std::sync::atomic::Ordering::Acquire);
+    assert!(!function_ptr.is_null(), "DuckDB API not initialized or DuckDB feature omitted");
+    let fun: unsafe extern "C" fn(expr: duckdb_expression) -> duckdb_expression =
+        ::std::mem::transmute(function_ptr);
+    (fun)(expr)
+}
+static __DUCKDB_COMPARISON_EXPRESSION_GET_RIGHT: ::std::sync::atomic::AtomicPtr<()> =
+    ::std::sync::atomic::AtomicPtr::new(::std::ptr::null_mut());
+pub unsafe fn duckdb_comparison_expression_get_right(expr: duckdb_expression) -> duckdb_expression {
+    let function_ptr = __DUCKDB_COMPARISON_EXPRESSION_GET_RIGHT.load(::std::sync::atomic::Ordering::Acquire);
+    assert!(!function_ptr.is_null(), "DuckDB API not initialized or DuckDB feature omitted");
+    let fun: unsafe extern "C" fn(expr: duckdb_expression) -> duckdb_expression =
+        ::std::mem::transmute(function_ptr);
+    (fun)(expr)
+}
+static __DUCKDB_CONJUNCTION_EXPRESSION_GET_CHILD_COUNT: ::std::sync::atomic::AtomicPtr<()> =
+    ::std::sync::atomic::AtomicPtr::new(::std::ptr::null_mut());
+pub unsafe fn duckdb_conjunction_expression_get_child_count(expr: duckdb_expression) -> idx_t {
+    let function_ptr =
+        __DUCKDB_CONJUNCTION_EXPRESSION_GET_CHILD_COUNT.load(::std::sync::atomic::Ordering::Acquire);
+    assert!(!function_ptr.is_null(), "DuckDB API not initialized or DuckDB feature omitted");
+    let fun: unsafe extern "C" fn(expr: duckdb_expression) -> idx_t = ::std::mem::transmute(function_ptr);
+    (fun)(expr)
+}
+static __DUCKDB_CONJUNCTION_EXPRESSION_GET_CHILD: ::std::sync::atomic::AtomicPtr<()> =
+    ::std::sync::atomic::AtomicPtr::new(::std::ptr::null_mut());
+pub unsafe fn duckdb_conjunction_expression_get_child(expr: duckdb_expression, index: idx_t) -> duckdb_expression {
+    let function_ptr =
+        __DUCKDB_CONJUNCTION_EXPRESSION_GET_CHILD.load(::std::sync::atomic::Ordering::Acquire);
+    assert!(!function_ptr.is_null(), "DuckDB API not initialized or DuckDB feature omitted");
+    let fun: unsafe extern "C" fn(expr: duckdb_expression, index: idx_t) -> duckdb_expression =
+        ::std::mem::transmute(function_ptr);
+    (fun)(expr, index)
+}
+static __DUCKDB_CONSTANT_EXPRESSION_GET_VALUE: ::std::sync::atomic::AtomicPtr<()> =
+    ::std::sync::atomic::AtomicPtr::new(::std::ptr::null_mut());
+pub unsafe fn duckdb_constant_expression_get_value(expr: duckdb_expression) -> duckdb_value {
+    let function_ptr = __DUCKDB_CONSTANT_EXPRESSION_GET_VALUE.load(::std::sync::atomic::Ordering::Acquire);
+    assert!(!function_ptr.is_null(), "DuckDB API not initialized or DuckDB feature omitted");
+    let fun: unsafe extern "C" fn(expr: duckdb_expression) -> duckdb_value = ::std::mem::transmute(function_ptr);
+    (fun)(expr)
+}
+static __DUCKDB_COLUMN_REF_EXPRESSION_GET_INDEX: ::std::sync::atomic::AtomicPtr<()> =
+    ::std::sync::atomic::AtomicPtr::new(::std::ptr::null_mut());
+pub unsafe fn duckdb_column_ref_expression_get_index(expr: duckdb_expression) -> idx_t {
+    let function_ptr = __DUCKDB_COLUMN_REF_EXPRESSION_GET_INDEX.load(::std::sync::atomic::Ordering::Acquire);
+    assert!(!function_ptr.is_null(), "DuckDB API not initialized or DuckDB feature omitted");
+    let fun: unsafe extern "C" fn(expr: duckdb_expression) -> idx_t = ::std::mem::transmute(function_ptr);
+    (fun)(expr)
+}
 /// Like DUCKDB_EXTENSION_API_INIT macro
 pub unsafe fn duckdb_rs_extension_api_init(
     info: duckdb_extension_info,
@@ -14111,6 +14259,52 @@ pub unsafe fn duckdb_rs_extension_api_init(
     }
     if let Some(fun) = (*p_api).duckdb_unsafe_vector_assign_string_element_len {
         __DUCKDB_UNSAFE_VECTOR_ASSIGN_STRING_ELEMENT_LEN
+            .store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
+    }
+    if let Some(fun) = (*p_api).duckdb_table_function_supports_filter_pushdown {
+        __DUCKDB_TABLE_FUNCTION_SUPPORTS_FILTER_PUSHDOWN
+            .store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
+    }
+    if let Some(fun) = (*p_api).duckdb_init_get_filter_count {
+        __DUCKDB_INIT_GET_FILTER_COUNT.store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
+    }
+    if let Some(fun) = (*p_api).duckdb_init_get_filter_column_index {
+        __DUCKDB_INIT_GET_FILTER_COLUMN_INDEX
+            .store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
+    }
+    if let Some(fun) = (*p_api).duckdb_init_get_filter_expression {
+        __DUCKDB_INIT_GET_FILTER_EXPRESSION
+            .store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
+    }
+    if let Some(fun) = (*p_api).duckdb_expression_get_type {
+        __DUCKDB_EXPRESSION_GET_TYPE.store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
+    }
+    if let Some(fun) = (*p_api).duckdb_comparison_expression_get_operator {
+        __DUCKDB_COMPARISON_EXPRESSION_GET_OPERATOR
+            .store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
+    }
+    if let Some(fun) = (*p_api).duckdb_comparison_expression_get_left {
+        __DUCKDB_COMPARISON_EXPRESSION_GET_LEFT
+            .store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
+    }
+    if let Some(fun) = (*p_api).duckdb_comparison_expression_get_right {
+        __DUCKDB_COMPARISON_EXPRESSION_GET_RIGHT
+            .store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
+    }
+    if let Some(fun) = (*p_api).duckdb_conjunction_expression_get_child_count {
+        __DUCKDB_CONJUNCTION_EXPRESSION_GET_CHILD_COUNT
+            .store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
+    }
+    if let Some(fun) = (*p_api).duckdb_conjunction_expression_get_child {
+        __DUCKDB_CONJUNCTION_EXPRESSION_GET_CHILD
+            .store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
+    }
+    if let Some(fun) = (*p_api).duckdb_constant_expression_get_value {
+        __DUCKDB_CONSTANT_EXPRESSION_GET_VALUE
+            .store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
+    }
+    if let Some(fun) = (*p_api).duckdb_column_ref_expression_get_index {
+        __DUCKDB_COLUMN_REF_EXPRESSION_GET_INDEX
             .store(fun as usize as *mut (), ::std::sync::atomic::Ordering::Release);
     }
     Ok(true)
