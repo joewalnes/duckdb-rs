@@ -383,13 +383,14 @@ mod test {
     // --- Filter pushdown tests ---
 
     struct FilterTestBindData;
+    #[allow(dead_code)]
     struct FilterTestInitData {
         filter_count: usize,
         filter_col_idx: usize,
         expr_type: ExpressionType,
         cmp_op: ComparisonOperator,
         constant_i64: i64,
-        emitted: bool,
+        emitted: std::sync::atomic::AtomicBool,
     }
     struct FilterTestVTab;
 
@@ -433,7 +434,7 @@ mod test {
                 expr_type,
                 cmp_op,
                 constant_i64,
-                emitted: false,
+                emitted: std::sync::atomic::AtomicBool::new(false),
             })
         }
 
@@ -442,14 +443,11 @@ mod test {
             output: &mut DataChunkHandle,
         ) -> Result<(), Box<dyn Error>> {
             let init_data = func.get_init_data();
-            if init_data.emitted {
+            if init_data.emitted.load(std::sync::atomic::Ordering::Relaxed) {
                 output.set_len(0);
                 return Ok(());
             }
-            // SAFETY: init_data is &T but we need &mut T here — use pointer cast.
-            // This is acceptable because the init data is only accessed from one thread at a time.
-            let init_data_mut = unsafe { &mut *(init_data as *const FilterTestInitData as *mut FilterTestInitData) };
-            init_data_mut.emitted = true;
+            init_data.emitted.store(true, std::sync::atomic::Ordering::Relaxed);
 
             let mut count_vec = output.flat_vector(0);
             let mut val_vec = output.flat_vector(1);
@@ -462,7 +460,7 @@ mod test {
         }
 
         fn supports_pushdown() -> bool {
-            true
+            false // keep column ordering predictable for the test
         }
 
         fn supports_filter_pushdown() -> bool {

@@ -501,11 +501,17 @@ pub enum ExpressionType {
 /// Comparison operators used in filter expressions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComparisonOperator {
+    /// `=`
     Equal,
+    /// `<>`
     NotEqual,
+    /// `<`
     LessThan,
+    /// `>`
     GreaterThan,
+    /// `<=`
     LessThanOrEqual,
+    /// `>=`
     GreaterThanOrEqual,
 }
 
