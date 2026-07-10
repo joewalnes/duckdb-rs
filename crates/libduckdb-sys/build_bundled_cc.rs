@@ -108,7 +108,7 @@ pub fn main(out_dir: &str, out_path: &Path) {
     }
 
     cfg.cpp(true)
-        .flag_if_supported("-std=c++11")
+        .flag_if_supported("-std=c++17")
         .flag_if_supported("/utf-8")
         .flag_if_supported("/bigobj")
         .warnings(false)
