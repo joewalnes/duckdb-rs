@@ -8,7 +8,7 @@ use super::{
         duckdb_table_function_add_named_parameter, duckdb_table_function_add_parameter, duckdb_table_function_init_t,
         duckdb_table_function_set_bind, duckdb_table_function_set_extra_info, duckdb_table_function_set_function,
         duckdb_table_function_set_init, duckdb_table_function_set_local_init, duckdb_table_function_set_name,
-        duckdb_table_function_supports_projection_pushdown, idx_t,
+        duckdb_table_function_supports_filter_pushdown, duckdb_table_function_supports_projection_pushdown, idx_t,
     },
 };
 use std::{
@@ -119,8 +119,21 @@ impl From<duckdb_bind_info> for BindInfo {
 }
 
 use super::ffi::{
-    duckdb_init_get_bind_data, duckdb_init_get_column_count, duckdb_init_get_column_index, duckdb_init_get_extra_info,
-    duckdb_init_info, duckdb_init_set_error, duckdb_init_set_init_data, duckdb_init_set_max_threads,
+    duckdb_column_ref_expression_get_index, duckdb_comparison_expression_get_left,
+    duckdb_comparison_expression_get_operator, duckdb_comparison_expression_get_right,
+    duckdb_comparison_type_DUCKDB_COMPARISON_EQUAL, duckdb_comparison_type_DUCKDB_COMPARISON_GREATERTHAN,
+    duckdb_comparison_type_DUCKDB_COMPARISON_GREATERTHANOREQUALTO,
+    duckdb_comparison_type_DUCKDB_COMPARISON_LESSTHAN, duckdb_comparison_type_DUCKDB_COMPARISON_LESSTHANOREQUALTO,
+    duckdb_comparison_type_DUCKDB_COMPARISON_NOTEQUAL, duckdb_conjunction_expression_get_child,
+    duckdb_conjunction_expression_get_child_count, duckdb_constant_expression_get_value,
+    duckdb_destroy_expression, duckdb_expression, duckdb_expression_get_type,
+    duckdb_expression_type_DUCKDB_EXPRESSION_COLUMN_REF, duckdb_expression_type_DUCKDB_EXPRESSION_COMPARISON,
+    duckdb_expression_type_DUCKDB_EXPRESSION_CONJUNCTION_AND,
+    duckdb_expression_type_DUCKDB_EXPRESSION_CONJUNCTION_OR, duckdb_expression_type_DUCKDB_EXPRESSION_CONSTANT,
+    duckdb_expression_type_DUCKDB_EXPRESSION_OTHER, duckdb_init_get_bind_data, duckdb_init_get_column_count,
+    duckdb_init_get_column_index, duckdb_init_get_extra_info, duckdb_init_get_filter_column_index,
+    duckdb_init_get_filter_count, duckdb_init_get_filter_expression, duckdb_init_info, duckdb_init_set_error,
+    duckdb_init_set_init_data, duckdb_init_set_max_threads,
 };
 
 /// An interface to store and retrieve data during the function init stage
@@ -190,6 +203,35 @@ impl InitInfo {
         let c_str = CString::new(error).unwrap();
         unsafe { duckdb_init_set_error(self.0, c_str.as_ptr()) }
     }
+
+    /// Returns the number of filters pushed down into the table function.
+    ///
+    /// This function must be used if filter pushdown is enabled to figure out which filters are active.
+    pub fn get_filter_count(&self) -> usize {
+        unsafe { duckdb_init_get_filter_count(self.0) as usize }
+    }
+
+    /// Returns the column index (in the schema) that the filter at the given position applies to.
+    ///
+    /// # Arguments
+    /// * `filter_index`: The index of the filter, from 0..get_filter_count()
+    pub fn get_filter_column_index(&self, filter_index: usize) -> usize {
+        unsafe { duckdb_init_get_filter_column_index(self.0, filter_index as idx_t) as usize }
+    }
+
+    /// Returns the filter expression at the given position, or `None` if unavailable.
+    ///
+    /// In filter expressions, column references always use index 0 as a placeholder for the filtered
+    /// column identified by [`get_filter_column_index`](Self::get_filter_column_index).
+    ///
+    /// The returned [`FilterExpression`] is owned and must be dropped when done.
+    ///
+    /// # Arguments
+    /// * `filter_index`: The index of the filter, from 0..get_filter_count()
+    pub fn get_filter_expression(&self, filter_index: usize) -> Option<FilterExpression> {
+        let expr = unsafe { duckdb_init_get_filter_expression(self.0, filter_index as idx_t) };
+        if expr.is_null() { None } else { Some(FilterExpression { ptr: expr }) }
+    }
 }
 
 /// A function that returns a queryable table
@@ -218,6 +260,22 @@ impl TableFunction {
     pub fn supports_pushdown(&self, supports: bool) -> &Self {
         unsafe {
             duckdb_table_function_supports_projection_pushdown(self.ptr, supports);
+        }
+        self
+    }
+
+    /// Sets whether or not the given table function supports filter pushdown.
+    ///
+    /// If this is set to true, the system may provide filter expressions in the `init` stage through
+    /// [`InitInfo::get_filter_count`], [`InitInfo::get_filter_column_index`], and
+    /// [`InitInfo::get_filter_expression`].
+    /// If this is set to false (the default), no filter information is provided.
+    ///
+    /// # Arguments
+    ///  * `pushdown`: True if the table function supports filter pushdown, false otherwise.
+    pub fn supports_filter_pushdown(&self, supports: bool) -> &Self {
+        unsafe {
+            duckdb_table_function_supports_filter_pushdown(self.ptr, supports);
         }
         self
     }
@@ -420,5 +478,122 @@ impl<V: VTab> From<duckdb_function_info> for TableFunctionInfo<V> {
             ptr,
             _vtab: PhantomData,
         }
+    }
+}
+
+/// The type of a filter expression, as returned by [`FilterExpression::expression_type`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpressionType {
+    /// A comparison expression (e.g. `column > 5`).
+    Comparison,
+    /// An AND conjunction (e.g. `a > 1 AND a < 10`).
+    ConjunctionAnd,
+    /// An OR conjunction (e.g. `a = 1 OR a = 2`).
+    ConjunctionOr,
+    /// A constant value (e.g. `5`, `'hello'`).
+    Constant,
+    /// A reference to a column. In filter expressions this is always index 0 (the filtered column).
+    ColumnRef,
+    /// An expression type not covered by the above variants.
+    Other,
+}
+
+/// Comparison operators used in filter expressions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComparisonOperator {
+    Equal,
+    NotEqual,
+    LessThan,
+    GreaterThan,
+    LessThanOrEqual,
+    GreaterThanOrEqual,
+}
+
+/// An owned filter expression returned from [`InitInfo::get_filter_expression`].
+///
+/// Dropped automatically via [`Drop`].
+pub struct FilterExpression {
+    ptr: duckdb_expression,
+}
+
+impl Drop for FilterExpression {
+    fn drop(&mut self) {
+        unsafe { duckdb_destroy_expression(&mut self.ptr) }
+    }
+}
+
+impl FilterExpression {
+    /// Returns the type of this expression.
+    pub fn expression_type(&self) -> ExpressionType {
+        let raw = unsafe { duckdb_expression_get_type(self.ptr) };
+        if raw == duckdb_expression_type_DUCKDB_EXPRESSION_COMPARISON {
+            ExpressionType::Comparison
+        } else if raw == duckdb_expression_type_DUCKDB_EXPRESSION_CONJUNCTION_AND {
+            ExpressionType::ConjunctionAnd
+        } else if raw == duckdb_expression_type_DUCKDB_EXPRESSION_CONJUNCTION_OR {
+            ExpressionType::ConjunctionOr
+        } else if raw == duckdb_expression_type_DUCKDB_EXPRESSION_CONSTANT {
+            ExpressionType::Constant
+        } else if raw == duckdb_expression_type_DUCKDB_EXPRESSION_COLUMN_REF {
+            ExpressionType::ColumnRef
+        } else {
+            debug_assert_eq!(raw, duckdb_expression_type_DUCKDB_EXPRESSION_OTHER);
+            ExpressionType::Other
+        }
+    }
+
+    /// Returns the comparison operator. Panics if `expression_type() != ExpressionType::Comparison`.
+    pub fn comparison_operator(&self) -> ComparisonOperator {
+        let raw = unsafe { duckdb_comparison_expression_get_operator(self.ptr) };
+        if raw == duckdb_comparison_type_DUCKDB_COMPARISON_EQUAL {
+            ComparisonOperator::Equal
+        } else if raw == duckdb_comparison_type_DUCKDB_COMPARISON_NOTEQUAL {
+            ComparisonOperator::NotEqual
+        } else if raw == duckdb_comparison_type_DUCKDB_COMPARISON_LESSTHAN {
+            ComparisonOperator::LessThan
+        } else if raw == duckdb_comparison_type_DUCKDB_COMPARISON_GREATERTHAN {
+            ComparisonOperator::GreaterThan
+        } else if raw == duckdb_comparison_type_DUCKDB_COMPARISON_LESSTHANOREQUALTO {
+            ComparisonOperator::LessThanOrEqual
+        } else {
+            debug_assert_eq!(raw, duckdb_comparison_type_DUCKDB_COMPARISON_GREATERTHANOREQUALTO);
+            ComparisonOperator::GreaterThanOrEqual
+        }
+    }
+
+    /// Returns the left operand of a comparison expression, or `None` if not applicable.
+    pub fn comparison_left(&self) -> Option<FilterExpression> {
+        let ptr = unsafe { duckdb_comparison_expression_get_left(self.ptr) };
+        if ptr.is_null() { None } else { Some(FilterExpression { ptr }) }
+    }
+
+    /// Returns the right operand of a comparison expression, or `None` if not applicable.
+    pub fn comparison_right(&self) -> Option<FilterExpression> {
+        let ptr = unsafe { duckdb_comparison_expression_get_right(self.ptr) };
+        if ptr.is_null() { None } else { Some(FilterExpression { ptr }) }
+    }
+
+    /// Returns the number of children of a conjunction expression.
+    pub fn conjunction_child_count(&self) -> usize {
+        unsafe { duckdb_conjunction_expression_get_child_count(self.ptr) as usize }
+    }
+
+    /// Returns the child at the given index of a conjunction expression, or `None` if out of range.
+    pub fn conjunction_child(&self, index: usize) -> Option<FilterExpression> {
+        let ptr = unsafe { duckdb_conjunction_expression_get_child(self.ptr, index as idx_t) };
+        if ptr.is_null() { None } else { Some(FilterExpression { ptr }) }
+    }
+
+    /// Returns the constant value of a `DUCKDB_EXPRESSION_CONSTANT` expression.
+    pub fn constant_value(&self) -> Option<Value> {
+        let ptr = unsafe { duckdb_constant_expression_get_value(self.ptr) };
+        if ptr.is_null() { None } else { Some(Value::from(ptr)) }
+    }
+
+    /// Returns the column index of a `DUCKDB_EXPRESSION_COLUMN_REF` expression.
+    ///
+    /// In filter expressions this is always `0` — the placeholder for the filtered column.
+    pub fn column_ref_index(&self) -> usize {
+        unsafe { duckdb_column_ref_expression_get_index(self.ptr) as usize }
     }
 }

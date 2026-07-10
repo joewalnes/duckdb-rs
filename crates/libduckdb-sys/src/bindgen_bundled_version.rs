@@ -166,6 +166,22 @@ pub const duckdb_catalog_entry_type_DUCKDB_CATALOG_ENTRY_TYPE_TYPE: duckdb_catal
 pub const duckdb_catalog_entry_type_DUCKDB_CATALOG_ENTRY_TYPE_DATABASE: duckdb_catalog_entry_type = 9;
 #[doc = "! An enum over DuckDB's catalog entry types."]
 pub type duckdb_catalog_entry_type = ::std::os::raw::c_uint;
+pub const duckdb_expression_type_DUCKDB_EXPRESSION_COMPARISON: duckdb_expression_type = 0;
+pub const duckdb_expression_type_DUCKDB_EXPRESSION_CONJUNCTION_AND: duckdb_expression_type = 1;
+pub const duckdb_expression_type_DUCKDB_EXPRESSION_CONJUNCTION_OR: duckdb_expression_type = 2;
+pub const duckdb_expression_type_DUCKDB_EXPRESSION_CONSTANT: duckdb_expression_type = 3;
+pub const duckdb_expression_type_DUCKDB_EXPRESSION_COLUMN_REF: duckdb_expression_type = 4;
+pub const duckdb_expression_type_DUCKDB_EXPRESSION_OTHER: duckdb_expression_type = 5;
+#[doc = "The type of a pushed-down filter expression, as returned by duckdb_expression_get_type."]
+pub type duckdb_expression_type = ::std::os::raw::c_uint;
+pub const duckdb_comparison_type_DUCKDB_COMPARISON_EQUAL: duckdb_comparison_type = 0;
+pub const duckdb_comparison_type_DUCKDB_COMPARISON_NOTEQUAL: duckdb_comparison_type = 1;
+pub const duckdb_comparison_type_DUCKDB_COMPARISON_LESSTHAN: duckdb_comparison_type = 2;
+pub const duckdb_comparison_type_DUCKDB_COMPARISON_GREATERTHAN: duckdb_comparison_type = 3;
+pub const duckdb_comparison_type_DUCKDB_COMPARISON_LESSTHANOREQUALTO: duckdb_comparison_type = 4;
+pub const duckdb_comparison_type_DUCKDB_COMPARISON_GREATERTHANOREQUALTO: duckdb_comparison_type = 5;
+#[doc = "Comparison operators used in filter expressions, as returned by duckdb_comparison_expression_get_operator."]
+pub type duckdb_comparison_type = ::std::os::raw::c_uint;
 #[doc = "! DuckDB's index type."]
 pub type idx_t = u64;
 #[doc = "! Type definition for the data pointers of selection vectors."]
@@ -2537,6 +2553,10 @@ unsafe extern "C" {
     pub fn duckdb_table_function_supports_projection_pushdown(table_function: duckdb_table_function, pushdown: bool);
 }
 unsafe extern "C" {
+    #[doc = "Sets whether or not the given table function supports filter pushdown.\n\nIf this is set to true, the system may provide filter expressions in the `init` stage through the\n`duckdb_init_get_filter_count`, `duckdb_init_get_filter_column_index` and `duckdb_init_get_filter_expression`\nfunctions.\n\n @param table_function The table function\n @param pushdown True if the table function supports filter pushdown, false otherwise."]
+    pub fn duckdb_table_function_supports_filter_pushdown(table_function: duckdb_table_function, pushdown: bool);
+}
+unsafe extern "C" {
     #[doc = "Register the table function object within the given connection.\n\nThe function requires at least a name, a bind function, an init function and a main function.\n\nIf the function is incomplete or a function with this name already exists DuckDBError is returned.\n\n @param con The connection to register it in.\n @param function The function pointer\n @return Whether or not the registration was successful."]
     pub fn duckdb_register_table_function(con: duckdb_connection, function: duckdb_table_function) -> duckdb_state;
 }
@@ -2608,6 +2628,21 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[doc = "Returns the column index of the projected column at the specified position.\n\nThis function must be used if projection pushdown is enabled to figure out which columns to emit.\n\n @param info The info object\n @param column_index The index at which to get the projected column index, from 0..duckdb_init_get_column_count(info)\n @return The column index of the projected column."]
     pub fn duckdb_init_get_column_index(info: duckdb_init_info, column_index: idx_t) -> idx_t;
+}
+unsafe extern "C" {
+    #[doc = "Returns the number of filters that have been pushed down into the table function.\n\n @param info The info object\n @return The number of filters."]
+    pub fn duckdb_init_get_filter_count(info: duckdb_init_info) -> idx_t;
+}
+unsafe extern "C" {
+    #[doc = "Returns the column index (in the schema) that the filter at the given position applies to.\n\n @param info The info object\n @param filter_index The index of the filter, from 0..duckdb_init_get_filter_count(info)\n @return The column index that the filter applies to."]
+    pub fn duckdb_init_get_filter_column_index(info: duckdb_init_info, filter_index: idx_t) -> idx_t;
+}
+unsafe extern "C" {
+    #[doc = "Returns the filter expression at the given position as a duckdb_expression.\n\nThe expression uses a column reference at index 0 as a placeholder for the filtered column.\nThe result must be destroyed with `duckdb_destroy_expression`.\n\n @param info The info object\n @param filter_index The index of the filter, from 0..duckdb_init_get_filter_count(info)\n @return The filter expression. Must be destroyed with `duckdb_destroy_expression`, or NULL if unavailable."]
+    pub fn duckdb_init_get_filter_expression(
+        info: duckdb_init_info,
+        filter_index: idx_t,
+    ) -> duckdb_expression;
 }
 unsafe extern "C" {
     #[doc = "Sets how many threads can process this table function in parallel (default: 1)\n\n @param info The info object\n @param max_threads The maximum amount of threads that can process this table function"]
@@ -3165,6 +3200,38 @@ unsafe extern "C" {
         expr: duckdb_expression,
         out_value: *mut duckdb_value,
     ) -> duckdb_error_data;
+}
+unsafe extern "C" {
+    #[doc = "Returns the high-level type of the expression (comparison, conjunction, constant, column reference, or other).\n\n @param expr The expression.\n @return The expression type."]
+    pub fn duckdb_expression_get_type(expr: duckdb_expression) -> duckdb_expression_type;
+}
+unsafe extern "C" {
+    #[doc = "Returns the comparison operator of a DUCKDB_EXPRESSION_COMPARISON expression.\n\n @param expr The expression. Must have type DUCKDB_EXPRESSION_COMPARISON.\n @return The comparison operator."]
+    pub fn duckdb_comparison_expression_get_operator(expr: duckdb_expression) -> duckdb_comparison_type;
+}
+unsafe extern "C" {
+    #[doc = "Returns the left operand of a DUCKDB_EXPRESSION_COMPARISON expression. Must be destroyed with `duckdb_destroy_expression`.\n\n @param expr The expression. Must have type DUCKDB_EXPRESSION_COMPARISON.\n @return The left operand."]
+    pub fn duckdb_comparison_expression_get_left(expr: duckdb_expression) -> duckdb_expression;
+}
+unsafe extern "C" {
+    #[doc = "Returns the right operand of a DUCKDB_EXPRESSION_COMPARISON expression. Must be destroyed with `duckdb_destroy_expression`.\n\n @param expr The expression. Must have type DUCKDB_EXPRESSION_COMPARISON.\n @return The right operand."]
+    pub fn duckdb_comparison_expression_get_right(expr: duckdb_expression) -> duckdb_expression;
+}
+unsafe extern "C" {
+    #[doc = "Returns the number of child expressions of a conjunction expression.\n\n @param expr The expression. Must have type DUCKDB_EXPRESSION_CONJUNCTION_AND or DUCKDB_EXPRESSION_CONJUNCTION_OR.\n @return The number of child expressions."]
+    pub fn duckdb_conjunction_expression_get_child_count(expr: duckdb_expression) -> idx_t;
+}
+unsafe extern "C" {
+    #[doc = "Returns the child expression at the given index of a conjunction expression. Must be destroyed with `duckdb_destroy_expression`.\n\n @param expr The expression.\n @param index The index of the child.\n @return The child expression."]
+    pub fn duckdb_conjunction_expression_get_child(expr: duckdb_expression, index: idx_t) -> duckdb_expression;
+}
+unsafe extern "C" {
+    #[doc = "Returns the value of a DUCKDB_EXPRESSION_CONSTANT expression. Must be destroyed with `duckdb_destroy_value`.\n\n @param expr The expression. Must have type DUCKDB_EXPRESSION_CONSTANT.\n @return The constant value."]
+    pub fn duckdb_constant_expression_get_value(expr: duckdb_expression) -> duckdb_value;
+}
+unsafe extern "C" {
+    #[doc = "Returns the column index of a DUCKDB_EXPRESSION_COLUMN_REF expression.\n\n @param expr The expression. Must have type DUCKDB_EXPRESSION_COLUMN_REF.\n @return The column reference index."]
+    pub fn duckdb_column_ref_expression_get_index(expr: duckdb_expression) -> idx_t;
 }
 unsafe extern "C" {
     #[doc = "Get a file system instance associated with the given client context.\n\n @param context The client context.\n @return The resulting file system instance. Must be destroyed with `duckdb_destroy_file_system`."]

@@ -17,7 +17,9 @@ pub use self::arrow::{
     arrow_arraydata_to_query_params, arrow_ffi_to_query_params, arrow_recordbatch_to_query_params,
     record_batch_to_duckdb_data_chunk, to_duckdb_logical_type, to_duckdb_logical_type_for_field, to_duckdb_type_id,
 };
-pub use function::{BindInfo, InitInfo, TableFunction, TableFunctionInfo};
+pub use function::{
+    BindInfo, ComparisonOperator, ExpressionType, FilterExpression, InitInfo, TableFunction, TableFunctionInfo,
+};
 pub use value::Value;
 
 use crate::core::{DataChunkHandle, LogicalTypeHandle};
@@ -63,9 +65,17 @@ pub trait VTab: Sized {
     /// When the table function is done, the implementation should set the length of the output to 0.
     fn func(func: &TableFunctionInfo<Self>, output: &mut DataChunkHandle) -> Result<(), Box<dyn std::error::Error>>;
 
-    /// Does the table function support pushdown
-    /// default is false
+    /// Does the table function support projection pushdown (default: false).
     fn supports_pushdown() -> bool {
+        false
+    }
+
+    /// Does the table function support filter pushdown (default: false).
+    ///
+    /// If this returns true, pushed-down filter expressions are available via
+    /// [`InitInfo::get_filter_count`], [`InitInfo::get_filter_column_index`], and
+    /// [`InitInfo::get_filter_expression`] during the init phase.
+    fn supports_filter_pushdown() -> bool {
         false
     }
     /// The parameters of the table function
@@ -142,6 +152,7 @@ impl Connection {
         table_function
             .set_name(name)
             .supports_pushdown(T::supports_pushdown())
+            .supports_filter_pushdown(T::supports_filter_pushdown())
             .set_bind(Some(bind::<T>))
             .set_init(Some(init::<T>))
             .set_function(Some(func::<T>));
@@ -365,6 +376,120 @@ mod test {
 
         let val = conn.query_row("select * from greet('partner')", [], |row| <(String,)>::try_from(row))?;
         assert_eq!(val, ("Howdy partner".to_string(),));
+
+        Ok(())
+    }
+
+    // --- Filter pushdown tests ---
+
+    struct FilterTestBindData;
+    struct FilterTestInitData {
+        filter_count: usize,
+        filter_col_idx: usize,
+        expr_type: ExpressionType,
+        cmp_op: ComparisonOperator,
+        constant_i64: i64,
+        emitted: bool,
+    }
+    struct FilterTestVTab;
+
+    impl VTab for FilterTestVTab {
+        type BindData = FilterTestBindData;
+        type InitData = FilterTestInitData;
+
+        fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn Error>> {
+            bind.add_result_column("filter_count", LogicalTypeHandle::from(LogicalTypeId::Bigint));
+            bind.add_result_column("constant_value", LogicalTypeHandle::from(LogicalTypeId::Bigint));
+            Ok(FilterTestBindData)
+        }
+
+        fn init(init: &InitInfo) -> Result<Self::InitData, Box<dyn Error>> {
+            let filter_count = init.get_filter_count();
+            let mut filter_col_idx = 0usize;
+            let mut expr_type = ExpressionType::Other;
+            let mut cmp_op = ComparisonOperator::Equal;
+            let mut constant_i64 = -1i64;
+
+            if filter_count > 0 {
+                filter_col_idx = init.get_filter_column_index(0);
+                if let Some(expr) = init.get_filter_expression(0) {
+                    expr_type = expr.expression_type();
+                    if expr_type == ExpressionType::Comparison {
+                        cmp_op = expr.comparison_operator();
+                        if let Some(right) = expr.comparison_right() {
+                            if right.expression_type() == ExpressionType::Constant {
+                                if let Some(val) = right.constant_value() {
+                                    constant_i64 = val.to_int64();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(FilterTestInitData {
+                filter_count,
+                filter_col_idx,
+                expr_type,
+                cmp_op,
+                constant_i64,
+                emitted: false,
+            })
+        }
+
+        fn func(
+            func: &TableFunctionInfo<Self>,
+            output: &mut DataChunkHandle,
+        ) -> Result<(), Box<dyn Error>> {
+            let init_data = func.get_init_data();
+            if init_data.emitted {
+                output.set_len(0);
+                return Ok(());
+            }
+            // SAFETY: init_data is &T but we need &mut T here — use pointer cast.
+            // This is acceptable because the init data is only accessed from one thread at a time.
+            let init_data_mut = unsafe { &mut *(init_data as *const FilterTestInitData as *mut FilterTestInitData) };
+            init_data_mut.emitted = true;
+
+            let mut count_vec = output.flat_vector(0);
+            let mut val_vec = output.flat_vector(1);
+            unsafe {
+                count_vec.as_mut_slice::<i64>()[0] = init_data.filter_count as i64;
+                val_vec.as_mut_slice::<i64>()[0] = init_data.constant_i64;
+            }
+            output.set_len(1);
+            Ok(())
+        }
+
+        fn supports_pushdown() -> bool {
+            true
+        }
+
+        fn supports_filter_pushdown() -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn test_filter_pushdown() -> Result<(), Box<dyn Error>> {
+        let conn = Connection::open_in_memory()?;
+        conn.register_table_function::<FilterTestVTab>("filter_test")?;
+
+        // With a WHERE clause: filter should be pushed down
+        let row: (i64, i64) = conn.query_row(
+            "SELECT filter_count, constant_value FROM filter_test() WHERE constant_value > 42",
+            [],
+            |row| <(i64, i64)>::try_from(row),
+        )?;
+        assert_eq!(row.0, 1, "expected 1 filter pushed down");
+        assert_eq!(row.1, 42, "expected constant value 42 extracted from filter");
+
+        // Without WHERE clause: no filters pushed down
+        let row2: (i64, i64) =
+            conn.query_row("SELECT filter_count, constant_value FROM filter_test()", [], |row| {
+                <(i64, i64)>::try_from(row)
+            })?;
+        assert_eq!(row2.0, 0, "expected 0 filters without WHERE clause");
 
         Ok(())
     }
